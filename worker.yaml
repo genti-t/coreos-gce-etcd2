@@ -1,0 +1,34 @@
+#cloud-config
+
+coreos:
+  fleet:
+    metadata: "role=worker"
+    etcd_servers: "http://core01:4001,http://core02:4001,http://core03:4001"
+  locksmith:
+    endpoint: "http://core01:4001,http://core02:4001,http://core03:4001"
+  units:
+    - name: etcd.service
+      mask: true
+    - name: fleet.service
+      command: start
+write_files:
+  - path: /home/core/dclogin
+    permissions: 0770
+    owner: core
+    content: | 
+      #!/bin/bash
+      conatinerName=$1
+      nsenter --target $(docker inspect --format {{.State.Pid}} $conatinerName) --mount --uts --ipc --net --pid
+  - path: /etc/profile.d/etcdctl.sh
+    permissions: 0644
+    owner: core
+    content: |
+      # configure etcdctl to work with our etcd servers set above
+      export ETCDCTL_PEERS="http://core01:4001,http://core02:4001,http://core03:4001"
+  - path: /etc/profile.d/fleetctl.sh
+    permissions: 0644
+    owner: core
+    content: |
+      # configure fleetctl to work with our etcd servers set above
+      export FLEETCTL_ENDPOINT=unix:///var/run/fleet.sock
+      export FLEETCTL_EXPERIMENTAL_API=true
