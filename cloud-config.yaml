@@ -1,0 +1,62 @@
+#cloud-config
+
+coreos:
+  fleet:
+    etcd-servers: http://$private_ipv4:2379
+    public-ip: $private_ipv4
+    metadata: "role=service"
+
+  units:
+    - name: etcd.service
+      command: start
+      content: |
+        Description=etcd 2.0
+        After=docker.service
+
+        [Service]
+        EnvironmentFile=/etc/environment
+        TimeoutStartSec=0
+        SyslogIdentifier=writer_process
+        ExecStartPre=-/usr/bin/docker kill etcd
+        ExecStartPre=-/usr/bin/docker rm etcd
+        ExecStartPre=/usr/bin/docker pull quay.io/coreos/etcd:v2.0.9
+        ExecStart=/bin/bash -c "/usr/bin/docker run \
+          -p 4001:4001 \
+          -p 2379:2379 \
+          -p 2380:2380 \
+          --name etcd \
+          -v /var/lib/etcd:/var/lib/etcd \
+          -v /usr/share/ca-certificates/:/etc/ssl/certs quay.io/coreos/etcd:v2.0.9 \
+          -data-dir /var/lib/etcd \
+          -name %H \
+          -advertise-client-urls http://$private_ipv4:2379,http://$private_ipv4:4001 \
+          -listen-client-urls http://0.0.0.0:2379,http://0.0.0.0:4001 \
+          -initial-advertise-peer-urls http://$private_ipv4:2380 \
+          -listen-peer-urls http://0.0.0.0:2380 \
+          -initial-cluster-token etcd-cluster-1 \
+          -discovery=http://discovery.etcd.io/f74dcefa2d718b012bb23536f39b0ee4 \
+          -initial-cluster-state new" 
+        ExecStop=/usr/bin/docker kill etcd
+
+        [X-Fleet]
+        Conflicts=etcd*       
+    - name: fleet.service
+      command: start
+  update:
+    reboot-strategy: etcd-lock
+
+write_files:
+  - path: /home/core/dclogin
+    permissions: 0770
+    owner: core
+    content: | 
+      #!/bin/bash
+      conatinerName=$1
+      nsenter --target $(docker inspect --format {{.State.Pid}} $conatinerName) --mount --uts --ipc --net --pid
+
+  - path: /etc/profile.d/fleetctl.sh
+    permissions: 0644
+    owner: core
+    content: |
+      export FLEETCTL_ENDPOINT=http://127.0.0.1:2379
+      
